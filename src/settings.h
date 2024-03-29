@@ -16,3 +16,7 @@
 
 // change for different ntp (time servers)
 #define NTP_SERVERS "0.fr.pool.ntp.org", "time.nist.gov", "pool.ntp.org"
+
+#define SCR_PIN 4
+#define ZERO_CROSS_PIN 5
+#define CURRENT_SENSING_ANA A0
