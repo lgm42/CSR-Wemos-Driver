@@ -46,7 +46,7 @@ void setup()
     zeroAt = 0;
     zeroesPos = 0;
 
-    attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossCallback, RISING);
+    attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossCallback, CHANGE);
 }
 
 ICACHE_RAM_ATTR 
