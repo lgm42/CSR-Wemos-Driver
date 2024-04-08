@@ -1,11 +1,13 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
+#include <ArduinoHA.h>
 #include "settings.h"
 
 #include "NetworkManager.h"
 
 #include <TLog.h>
 #include <TelnetSerialStream.h>
+#include "CustomHaDevice.h"
 
 unsigned long zeroAt;
 unsigned long lastZeroAt;
@@ -15,6 +17,7 @@ unsigned int zeroes[ZEROES_SAMPLE];
 int zeroesPos;
 
 void zeroCrossCallback();
+CustomHaDevice *device;
 
 void setup()
 {
@@ -45,7 +48,13 @@ void setup()
     lastZeroAt = 0;
     zeroAt = 0;
     zeroesPos = 0;
-
+    String uniqueId = String("CSR_") + WiFi.macAddress();
+    uniqueId.replace(":", "");
+    uniqueId.toLowerCase();
+    
+    device = new CustomHaDevice(uniqueId, Network.client());
+    device->setup();
+    
     attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossCallback, CHANGE);
 }
 
@@ -64,6 +73,8 @@ void loop()
 {
     Log.loop();
     Network.handle();
+    device->loop();
+
     static unsigned long last_report = millis();
     if (millis() - last_report < 1 * 1000)
         return;
@@ -73,8 +84,9 @@ void loop()
         zeroFreq += zeroes[i];
 
     zeroFreq = zeroFreq / ZEROES_SAMPLE;
-
+    device->networkFrequency(2 * zeroFreq);
     Log.printf("Period of zero cross: %d\n\r", zeroFreq);
+
     digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
     last_report = millis();
 }

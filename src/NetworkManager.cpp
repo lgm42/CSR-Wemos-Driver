@@ -79,7 +79,6 @@ void NetworkManager::setup()
     ArduinoOTA.begin();
 
     /* Initialize MDNS */
-    
     //MDNS.addService("http", "tcp", 80);
 }
 
@@ -94,6 +93,11 @@ void NetworkManager::handle()
         updateNTP();
         _tickNTPUpdate = currentMillis;
     }
+}
+
+WiFiClient& NetworkManager::client()
+{
+    return _wifiClient;
 }
 
 void NetworkManager::updateNTP()

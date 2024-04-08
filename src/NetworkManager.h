@@ -16,6 +16,8 @@ class NetworkManager
     void setup();
     void handle();
 
+    WiFiClient& client();
+
   private:
     void updateNTP();
     
