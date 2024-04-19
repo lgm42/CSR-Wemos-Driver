@@ -10,6 +10,8 @@
 class NetworkManager 
 {
   public:
+    typedef std::function<void(void)> THandlerFunction;
+
 	  NetworkManager();
   	virtual ~NetworkManager();
 
@@ -17,6 +19,8 @@ class NetworkManager
     void handle();
 
     WiFiClient& client();
+    
+  void onOTAStart(THandlerFunction fn);
 
   private:
     void updateNTP();
@@ -25,6 +29,7 @@ class NetworkManager
     WiFiManager _wifiManager;
     WiFiClient _wifiClient;
     TelnetSerialStream _telnetSerialStream;
+    THandlerFunction _otaStartFunc;
 
 };
 

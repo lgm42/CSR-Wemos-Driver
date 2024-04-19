@@ -9,7 +9,7 @@
 /******************** Public Method *********************/
 /********************************************************/
 
-NetworkManager::NetworkManager() : _tickNTPUpdate(0)
+NetworkManager::NetworkManager() : _tickNTPUpdate(0), _otaStartFunc(nullptr)
 {}
 
 NetworkManager::~NetworkManager() 
@@ -49,6 +49,8 @@ void NetworkManager::setup()
 
     ArduinoOTA.onStart([&]() {
         Log.println("Arduino OTA: Start updating");
+        if (_otaStartFunc == nullptr)
+            _otaStartFunc();
     });
 
     ArduinoOTA.onEnd([]() {
@@ -111,6 +113,12 @@ void NetworkManager::updateNTP()
   }
   Log.println("Update NTP");
 }
+
+void NetworkManager::onOTAStart(THandlerFunction fn)
+{
+    _otaStartFunc = fn;
+}
+
 
 #if !defined(NO_GLOBAL_INSTANCES) 
 NetworkManager Network;
