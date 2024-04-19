@@ -12,12 +12,25 @@
 unsigned long zeroAt;
 unsigned long lastZeroAt;
 
+// (80Mhz frequence ESP8266) 1 cycle = 12.5ns => 1 µ seconde / 12.5 ns = 80 
+#define US_TO_TICK  5
+unsigned long numPsec        = 312600; 
+#define HIGH_CSR_DURATION_TIME  500 //µs
+#define MIN_PWM_TIME 100.f //µs
+
+
 #define ZEROES_SAMPLE   20
 unsigned int zeroes[ZEROES_SAMPLE];
 int zeroesPos;
+float halfNetworkPeriod_ms;
+float timerExpiration;
 
 void zeroCrossCallback();
-CustomHaDevice *device;
+void onTimerInterrupt();
+
+bool csr_low;
+int nbIt = 0;
+bool managePower = false;
 
 void setup()
 {
@@ -48,45 +61,132 @@ void setup()
     lastZeroAt = 0;
     zeroAt = 0;
     zeroesPos = 0;
-    String uniqueId = String("CSR_") + WiFi.macAddress();
-    uniqueId.replace(":", "");
-    uniqueId.toLowerCase();
     
-    device = new CustomHaDevice(uniqueId, Network.client());
-    device->setup();
+    HaDevice.setup();
     
+    pinMode(SCR_PIN, OUTPUT);
+    digitalWrite(SCR_PIN, LOW);
+
+    Log.printf("Configuring IT...\n\r");
+
+    //disable interrupts
+    noInterrupts();
+
     attachInterrupt(digitalPinToInterrupt(ZERO_CROSS_PIN), zeroCrossCallback, CHANGE);
+
+    timer1_isr_init();
+    timer1_attachInterrupt(onTimerInterrupt);
+    timer1_enable(TIM_DIV16, TIM_EDGE, TIM_SINGLE);
+
+    csr_low = true;
+
+    //enable interrupts
+    interrupts();
+
+    Network.onOTAStart([&]() {
+        // we prevent IT and cut power
+        timer1_disable();
+        managePower = false;
+        digitalWrite(SCR_PIN, LOW);
+    });
+
+    managePower = true;
+    Log.printf("Setup finished.\n\r");
 }
 
 ICACHE_RAM_ATTR 
 void zeroCrossCallback()
 {
-    lastZeroAt = zeroAt;
-    zeroAt = micros();
-    zeroes[zeroesPos] = zeroAt - lastZeroAt;
-    zeroesPos++;
-    if (zeroesPos >= ZEROES_SAMPLE)
-        zeroesPos = 0;
+    if (managePower)
+    {
+        lastZeroAt = zeroAt;
+        zeroAt = micros();
+        zeroes[zeroesPos] = zeroAt - lastZeroAt;
+        zeroesPos++;
+        if (zeroesPos >= ZEROES_SAMPLE)
+            zeroesPos = 0;
+
+        float zeroFreq = 0.f;
+        for (int i = 0; i < ZEROES_SAMPLE; ++i)
+            zeroFreq += (float)zeroes[i];
+
+        zeroFreq = zeroFreq / (float)ZEROES_SAMPLE;
+        halfNetworkPeriod_ms = zeroFreq;
+
+        //we compute the time when the timer should fire
+        float pwm = HaDevice.setPoint();
+        if (pwm > 10)
+        {
+            pwm = std::max(0.f, std::min(100.f, pwm));
+            //100% of pwm must fire in halfNetworkPeriod_ms µs
+            pwm = halfNetworkPeriod_ms * (100.f - pwm) / 100.f;
+            // we have to take into account the high time of the csr in the max value we can set to let the high time in the allowed time
+            pwm = min(pwm, halfNetworkPeriod_ms);
+            pwm = max(pwm, MIN_PWM_TIME);
+            timerExpiration = pwm;
+            
+            digitalWrite(SCR_PIN, LOW);
+            csr_low = true;
+            //managed a 100% pwm requested
+            timer1_write(US_TO_TICK * pwm);
+        }
+    }
+}
+ 
+void onTimerInterrupt(void)
+{
+    noInterrupts();
+    if (managePower)
+    {
+        nbIt++;
+        //digitalWrite(SCR_PIN, HIGH);
+        //digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+
+        if (csr_low)
+        {
+            //digitalWrite(LED_BUILTIN, HIGH);
+            digitalWrite(LED_BUILTIN, LOW);
+
+            //we have to set CSR pin to high
+            csr_low = false;
+            //we set the CSR pin
+            digitalWrite(SCR_PIN, HIGH);
+
+            //we clear the csr pin just after a little time
+            timer1_write(US_TO_TICK * HIGH_CSR_DURATION_TIME);
+        }
+        else
+        {
+            csr_low = true;
+            digitalWrite(LED_BUILTIN, HIGH);
+
+            //we clear the CSR pin
+            digitalWrite(SCR_PIN, LOW);
+            //we don't re-arm the timer here
+        }
+    }
+    interrupts(); 
 }
 
 void loop()
 {
     Log.loop();
     Network.handle();
-    device->loop();
+    HaDevice.loop();
 
     static unsigned long last_report = millis();
-    if (millis() - last_report < 1 * 1000)
+    if (millis() - last_report < 1 * 20)
         return;
+    if (halfNetworkPeriod_ms != 0)
+    {
+        float freq = 1.f / (2.f * halfNetworkPeriod_ms / 1000000.f);
+        HaDevice.networkFrequency(freq);
+    }
+    // Log.printf("Half Period of zero cross: %f\n\r", halfNetworkPeriod_ms);
+    // Log.printf("timerExpiration: %f\n\r", timerExpiration);
+    // Log.printf("computation: %f\n\r", computation);
+    // Log.printf("nbIt: %d\n\r", nbIt);
+    // Log.printf("setPoint: %f\n\r", HaDevice.setPoint());
 
-    int zeroFreq = 0;
-    for (int i = 0; i < ZEROES_SAMPLE; ++i)
-        zeroFreq += zeroes[i];
-
-    zeroFreq = zeroFreq / ZEROES_SAMPLE;
-    device->networkFrequency(2 * zeroFreq);
-    Log.printf("Period of zero cross: %d\n\r", zeroFreq);
-
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
     last_report = millis();
 }
